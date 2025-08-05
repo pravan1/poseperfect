@@ -4,13 +4,16 @@ import numpy as np
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QComboBox, 
                              QTextEdit, QProgressBar, QGroupBox, QFrame, 
-                             QMessageBox, QSplitter)
+                             QMessageBox, QSplitter, QCheckBox)
 from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QImage, QPixmap, QFont, QPalette, QColor
 import threading
-from pose_detector import TaekwondoPoseDetector
+from optimized_pose_detector import OptimizedPoseDetector
+from optimized_camera import OptimizedCamera
 from calibration import UserCalibration
 from voice_feedback import VoiceFeedback
+from pose_processor_thread import PoseProcessorThread
+from performance_config import PerformanceConfig
 import os
 
 class VideoThread(QThread):
@@ -18,44 +21,51 @@ class VideoThread(QThread):
     
     def __init__(self):
         super().__init__()
+        self.camera = OptimizedCamera()
         self.running = False
-        self.cap = None
         
     def start_capture(self):
-        self.cap = cv2.VideoCapture(0)
-        if not self.cap.isOpened():
-            return False
-        self.running = True
-        self.start()
-        return True
+        if self.camera.start():
+            self.running = True
+            self.start()
+            return True
+        return False
         
     def stop_capture(self):
         self.running = False
-        if self.cap:
-            self.cap.release()
-        self.quit()
-        self.wait()
+        self.wait(200)  # Wait maximum 200ms for thread to finish
+        self.camera.stop()
+        if self.isRunning():
+            self.terminate()  # Force terminate if still running
+            self.wait()
         
     def run(self):
-        while self.running and self.cap and self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if ret:
-                frame = cv2.flip(frame, 1)  # Mirror the image
+        while self.running:
+            frame = self.camera.get_frame()
+            if frame is not None:
                 self.frame_ready.emit(frame)
-            self.msleep(30)  # ~33 FPS
+            self.msleep(int(1000 / 30))  # 30 FPS
 
 class TaekwondoApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.pose_detector = TaekwondoPoseDetector()
+        self.pose_detector = OptimizedPoseDetector()
         self.calibration = UserCalibration()
         self.voice_feedback = VoiceFeedback()
         self.video_thread = VideoThread()
+        
+        # Create pose processor thread
+        self.pose_processor = PoseProcessorThread(self.pose_detector)
+        self.pose_processor.pose_analyzed.connect(self.handle_pose_analysis)
+        self.pose_processor.start_processing()
         
         self.current_frame = None
         self.current_mode = "practice"  # practice, calibration
         self.current_move = "front_stance"
         self.calibration_step = 0
+        self.frame_counter = 0  # Frame counter for skipping
+        self.last_feedback_time = 0  # Throttle feedback updates
+        self.last_processed_frame = None  # Store last processed frame
         
         self.init_ui()
         self.setup_connections()
@@ -64,6 +74,11 @@ class TaekwondoApp(QMainWindow):
         self.setWindowTitle("Taekwondo.AI - Virtual Training Assistant")
         self.setGeometry(100, 100, 1200, 800)
         self.setStyleSheet(self.get_app_stylesheet())
+        
+        # Set window to have rounded corners and shadow (platform-specific)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowSystemMenuHint | Qt.WindowMinMaxButtonsHint)
+        self.setWindowFlags(self.windowFlags() & ~Qt.FramelessWindowHint)  # Re-enable frame for now
         
         # Central widget
         central_widget = QWidget()
@@ -96,9 +111,11 @@ class TaekwondoApp(QMainWindow):
         self.video_label.setMinimumSize(640, 480)
         self.video_label.setStyleSheet("""
             QLabel {
-                border: 2px solid #333;
-                background-color: #1a1a1a;
-                border-radius: 10px;
+                border: 2px solid #cc0000;
+                background: linear-gradient(135deg, #000000 0%, #330000 100%);
+                border-radius: 16px;
+                padding: 2px;
+                color: #ffffff;
             }
         """)
         self.video_label.setAlignment(Qt.AlignCenter)
@@ -156,7 +173,7 @@ class TaekwondoApp(QMainWindow):
         calibration_layout = QVBoxLayout(calibration_group)
         
         self.calibration_status = QLabel("Status: Not Calibrated")
-        self.calibration_status.setStyleSheet("color: #ff6b6b; font-weight: bold;")
+        self.calibration_status.setStyleSheet("color: #ff3b30; font-weight: 600; font-size: 14px;")
         calibration_layout.addWidget(self.calibration_status)
         
         self.calibration_button = QPushButton("Start Calibration")
@@ -177,13 +194,18 @@ class TaekwondoApp(QMainWindow):
         self.feedback_text.setMaximumHeight(150)
         self.feedback_text.setStyleSheet("""
             QTextEdit {
-                background-color: #2b2b2b;
+                background-color: rgba(26, 26, 26, 0.95);
                 color: #ffffff;
-                border: 1px solid #555;
-                border-radius: 5px;
-                padding: 10px;
-                font-family: 'Segoe UI';
-                font-size: 12px;
+                border: 1px solid #cc0000;
+                border-radius: 12px;
+                padding: 12px;
+                font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+                font-size: 13px;
+                line-height: 1.5;
+            }
+            QTextEdit::selection {
+                background-color: #cc0000;
+                color: white;
             }
         """)
         self.feedback_text.setReadOnly(True)
@@ -198,15 +220,18 @@ class TaekwondoApp(QMainWindow):
         self.quality_bar.setValue(0)
         self.quality_bar.setStyleSheet("""
             QProgressBar {
-                border: 2px solid #555;
-                border-radius: 5px;
+                border: 1px solid #666666;
+                border-radius: 6px;
                 text-align: center;
-                background-color: #2b2b2b;
+                background-color: #1a1a1a;
+                height: 10px;
+                font-size: 13px;
+                color: #ffffff;
             }
             QProgressBar::chunk {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #ff6b6b, stop:0.5 #ffa726, stop:1 #66bb6a);
-                border-radius: 3px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #660000, stop:0.5 #cc0000, stop:1 #ff0000);
+                border-radius: 5px;
             }
         """)
         quality_layout.addWidget(self.quality_bar)
@@ -223,6 +248,31 @@ class TaekwondoApp(QMainWindow):
         self.voice_enabled_button.setStyleSheet(self.get_toggle_button_stylesheet())
         voice_layout.addWidget(self.voice_enabled_button)
         
+        # Add checkbox for auto-read instructions
+        self.auto_read_instructions = QCheckBox("Auto-read move instructions")
+        self.auto_read_instructions.setChecked(True)
+        self.auto_read_instructions.setStyleSheet("""
+            QCheckBox {
+                font-size: 14px;
+                color: #ffffff;
+                padding: 5px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                background-color: #333333;
+                border: 1px solid #cc0000;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #cc0000;
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid #ff0000;
+            }
+        """)
+        voice_layout.addWidget(self.auto_read_instructions)
+        
         right_layout.addWidget(voice_group)
         
         # Instructions
@@ -233,10 +283,12 @@ class TaekwondoApp(QMainWindow):
         self.instruction_label.setWordWrap(True)
         self.instruction_label.setStyleSheet("""
             QLabel {
-                color: #cccccc;
-                padding: 10px;
-                background-color: #2b2b2b;
-                border-radius: 5px;
+                color: #3a3a3c;
+                padding: 15px;
+                background-color: #f2f2f7;
+                border-radius: 12px;
+                font-size: 14px;
+                line-height: 1.4;
             }
         """)
         instructions_layout.addWidget(self.instruction_label)
@@ -283,80 +335,107 @@ class TaekwondoApp(QMainWindow):
         self.add_feedback("Camera stopped.")
     
     def update_frame(self, frame):
-        self.current_frame = frame.copy()
-        
-        # Process frame based on current mode
-        if self.current_mode == "calibration":
-            processed_frame = self.process_calibration_frame(frame)
-        else:
-            processed_frame = self.process_practice_frame(frame)
-        
-        # Convert to Qt format and display
-        self.display_frame(processed_frame)
+        try:
+            self.current_frame = frame.copy()
+            self.frame_counter += 1
+            
+            # Process frames based on skip rate configuration
+            if self.frame_counter % PerformanceConfig.FRAME_SKIP_RATE == 0:
+                # Send frame to processor thread (non-blocking)
+                self.pose_processor.add_frame(frame, self.current_mode)
+            
+            # Always display the current frame to prevent freezing
+            # Overlay landmarks if available from last processing
+            if hasattr(self, 'last_landmarks') and self.last_landmarks is not None:
+                # Draw landmarks on current frame for smooth display
+                display_frame = self.pose_detector.draw_landmarks(
+                    frame.copy(), self.last_landmarks
+                )
+                self.display_frame(display_frame)
+            else:
+                self.display_frame(frame)
+        except Exception as e:
+            print(f"Error updating frame: {e}")
+    
+    def handle_pose_analysis(self, analysis):
+        """Handle pose analysis from processor thread"""
+        try:
+            if analysis['pose_detected']:
+                # Store landmarks for smooth display
+                self.last_landmarks = analysis['landmarks']
+                
+                # Update feedback
+                self.update_feedback_display(analysis)
+                
+                # Analyze specific move if in practice mode
+                if analysis.get('mode') == 'practice' and self.current_frame is not None:
+                    move_analysis = self.analyze_current_move(
+                        analysis['landmarks'], self.current_frame
+                    )
+                    if move_analysis:
+                        self.update_move_feedback(move_analysis)
+                elif analysis.get('mode') == 'calibration':
+                    self.handle_calibration_analysis(analysis)
+            else:
+                # Show visibility feedback if pose not detected
+                if 'visibility_score' in analysis and analysis['visibility_score'] < 0.4:
+                    self.add_feedback("Cannot detect pose clearly. Please:")
+                    self.add_feedback("- Stand further from camera to show full body")
+                    self.add_feedback("- Ensure good lighting")
+                    self.add_feedback("- Wear contrasting colors")
+        except Exception as e:
+            print(f"Error handling pose analysis: {e}")
     
     def process_practice_frame(self, frame):
-        # Detect pose
-        analysis = self.pose_detector.detect_pose(frame)
-        
-        if analysis['pose_detected']:
-            # Draw pose landmarks
-            frame = self.pose_detector.draw_pose_landmarks(frame, analysis['landmarks'])
-            
-            # Update feedback
-            self.update_feedback_display(analysis)
-            
-            # Analyze specific move
-            move_analysis = self.analyze_current_move(analysis['landmarks'], frame)
-            if move_analysis:
-                self.update_move_feedback(move_analysis)
-        
+        # This method is now handled by the pose processor thread
         return frame
     
     def process_calibration_frame(self, frame):
-        # Handle calibration process
-        analysis = self.pose_detector.detect_pose(frame)
-        
-        if analysis['pose_detected']:
-            frame = self.pose_detector.draw_pose_landmarks(frame, analysis['landmarks'])
-            
-            # Process calibration step
-            if hasattr(self, 'calibration_in_progress') and self.calibration_in_progress:
-                self.process_calibration_step(analysis['landmarks'], frame.shape[:2])
-        
+        # This method is now handled by the pose processor thread
         return frame
     
+    def handle_calibration_analysis(self, analysis):
+        """Handle calibration analysis from processor thread"""
+        if hasattr(self, 'calibration_in_progress') and self.calibration_in_progress:
+            if self.current_frame is not None:
+                self.process_calibration_step(
+                    analysis['landmarks'], self.current_frame.shape[:2]
+                )
+    
     def analyze_current_move(self, landmarks, frame):
-        move_map = {
-            "Front Stance": self.pose_detector.analyze_front_stance,
-            "Roundhouse Kick": self.pose_detector.analyze_roundhouse_kick,
-        }
-        
-        move_name = self.move_combo.currentText()
-        if move_name in move_map:
-            return move_map[move_name](landmarks, frame)
-        
+        # For now, return the basic feedback from the analysis
+        # Move-specific analysis can be added later
         return None
     
     def update_feedback_display(self, analysis):
-        # Update pose quality bar
-        quality = analysis.get('pose_quality', 0)
+        import time
+        current_time = time.time()
+        
+        # Update pose quality bar (use confidence as quality metric)
+        quality = analysis.get('detection_confidence', 0) * 100
         self.quality_bar.setValue(int(quality))
         
-        # Update feedback text
-        feedback_lines = []
-        
-        if analysis.get('feedback'):
-            feedback_lines.extend(f"✓ {fb}" for fb in analysis['feedback'])
-        
-        if analysis.get('errors'):
-            feedback_lines.extend(f"✗ {err}" for err in analysis['errors'])
-        
-        if feedback_lines:
-            self.feedback_text.append('\n'.join(feedback_lines))
+        # Throttle text updates to reduce UI overhead
+        if current_time - self.last_feedback_time > PerformanceConfig.FEEDBACK_UPDATE_INTERVAL:
+            # Update feedback text
+            feedback_lines = []
             
-            # Voice feedback
-            if self.voice_enabled_button.isChecked() and analysis.get('errors'):
-                self.voice_feedback.speak_feedback(analysis['errors'][0])
+            if analysis.get('feedback'):
+                feedback_lines.extend(f"✓ {fb}" for fb in analysis['feedback'])
+            
+            if analysis.get('errors'):
+                feedback_lines.extend(f"✗ {err}" for err in analysis['errors'])
+            
+            if feedback_lines:
+                # Limit feedback text buffer size
+                if self.feedback_text.document().lineCount() > PerformanceConfig.MAX_FEEDBACK_LINES:
+                    self.feedback_text.clear()
+                self.feedback_text.append('\n'.join(feedback_lines[:2]))  # Show max 2 items
+                self.last_feedback_time = current_time
+                
+                # Voice feedback (also throttled)
+                if self.voice_enabled_button.isChecked() and analysis.get('errors'):
+                    self.voice_feedback.speak_feedback(analysis['errors'][0])
     
     def update_move_feedback(self, move_analysis):
         if move_analysis.get('feedback'):
@@ -366,8 +445,23 @@ class TaekwondoApp(QMainWindow):
         if move_analysis.get('errors'):
             for error in move_analysis['errors']:
                 self.add_feedback(f"Move Error: {error}")
+        
+        # Handle specific corrections with voice feedback
+        if move_analysis.get('corrections'):
+            for correction in move_analysis['corrections']:
+                self.add_feedback(f"Correction: {correction}")
+                # Speak the correction if voice is enabled
+                if self.voice_enabled_button.isChecked():
+                    self.voice_feedback.speak_feedback(correction, priority="high")
     
     def add_feedback(self, message):
+        import time
+        current_time = time.time()
+        # Throttle feedback updates to max once per 0.5 seconds
+        if current_time - self.last_feedback_time < 0.5:
+            return
+        self.last_feedback_time = current_time
+        
         self.feedback_text.append(f"[{self.get_timestamp()}] {message}")
         
         # Auto-scroll to bottom
@@ -385,9 +479,10 @@ class TaekwondoApp(QMainWindow):
         bytes_per_line = ch * w
         qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
         
-        # Scale to fit label
+        # Scale to fit label with configurable transformation
         pixmap = QPixmap.fromImage(qt_image)
-        scaled_pixmap = pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        transform_mode = Qt.FastTransformation if PerformanceConfig.USE_FAST_SCALING else Qt.SmoothTransformation
+        scaled_pixmap = pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, transform_mode)
         self.video_label.setPixmap(scaled_pixmap)
     
     def capture_photo(self):
@@ -400,9 +495,9 @@ class TaekwondoApp(QMainWindow):
             filename = f"static/captures/pose_capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
             
             # Process frame with pose landmarks
-            analysis = self.pose_detector.detect_pose(self.current_frame)
+            analysis = self.pose_detector.process_frame(self.current_frame)
             if analysis['pose_detected']:
-                capture_frame = self.pose_detector.draw_pose_landmarks(self.current_frame.copy(), analysis['landmarks'])
+                capture_frame = self.pose_detector.draw_landmarks(self.current_frame.copy(), analysis['landmarks'])
             else:
                 capture_frame = self.current_frame.copy()
             
@@ -469,10 +564,10 @@ class TaekwondoApp(QMainWindow):
     def update_calibration_status(self):
         if self.calibration.is_calibrated():
             self.calibration_status.setText("Status: Calibrated ✓")
-            self.calibration_status.setStyleSheet("color: #66bb6a; font-weight: bold;")
+            self.calibration_status.setStyleSheet("color: #34c759; font-weight: 600; font-size: 14px;")
         else:
             self.calibration_status.setText("Status: Not Calibrated")
-            self.calibration_status.setStyleSheet("color: #ff6b6b; font-weight: bold;")
+            self.calibration_status.setStyleSheet("color: #ff3b30; font-weight: 600; font-size: 14px;")
     
     def mode_changed(self, mode_text):
         if "Calibration" in mode_text:
@@ -484,6 +579,22 @@ class TaekwondoApp(QMainWindow):
     def move_changed(self, move_text):
         self.current_move = move_text.lower().replace(" ", "_")
         self.add_feedback(f"Selected move: {move_text}")
+        
+        # Note: Move instructions handled separately now
+        # instructions = self.pose_detector.set_current_move(self.current_move)
+        
+        # Update instruction label with the first instruction
+        if instructions:
+            self.instruction_label.setText(instructions[0])
+        
+        # Speak all instructions if voice is enabled and auto-read is checked
+        if self.voice_enabled_button.isChecked() and self.auto_read_instructions.isChecked() and instructions:
+            # First, announce the move
+            self.voice_feedback.speak_instruction(f"Now learning {move_text}")
+            # Then speak each instruction with a slight delay
+            for i, instruction in enumerate(instructions):
+                # Use QTimer to delay each instruction (start after 2 seconds, then 3 seconds apart)
+                QTimer.singleShot(2000 + (i * 3000), lambda inst=instruction: self.voice_feedback.speak_instruction(inst))
     
     def toggle_voice_feedback(self, enabled):
         if enabled:
@@ -494,89 +605,165 @@ class TaekwondoApp(QMainWindow):
             self.add_feedback("Voice feedback disabled")
     
     def closeEvent(self, event):
-        self.video_thread.stop_capture()
-        self.pose_detector.close()
-        event.accept()
+        # Stop all threads properly
+        try:
+            # Stop pose processor first
+            if hasattr(self, 'pose_processor'):
+                self.pose_processor.stop_processing()
+            
+            # Stop video thread
+            if hasattr(self, 'video_thread'):
+                self.video_thread.stop_capture()
+            
+            # Close pose detector
+            if hasattr(self, 'pose_detector'):
+                self.pose_detector.close()
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+        finally:
+            event.accept()
     
     def get_app_stylesheet(self):
         return """
             QMainWindow {
-                background-color: #1e1e1e;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1a1a1a, stop:1 #000000);
                 color: #ffffff;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
             }
             QGroupBox {
-                font-weight: bold;
-                border: 2px solid #555;
-                border-radius: 10px;
-                margin-top: 1ex;
-                padding-top: 10px;
+                font-weight: 600;
+                font-size: 13px;
+                color: #cccccc;
+                border: 1px solid #cc0000;
+                background-color: rgba(26, 26, 26, 0.9);
+                border-radius: 12px;
+                margin-top: 20px;
+                padding: 15px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
+                left: 15px;
+                padding: 0 8px 0 8px;
+                color: #ff0000;
+                font-size: 17px;
+                font-weight: 600;
+            }
+            QLabel {
+                font-size: 15px;
+                color: #ffffff;
             }
         """
     
     def get_button_stylesheet(self, color):
+        # Black and red theme color mapping
+        theme_colors = {
+            "#4CAF50": "#cc0000",  # Green -> Red
+            "#f44336": "#ff0000",  # Red -> Bright Red
+            "#2196F3": "#cc0000",  # Blue -> Red
+            "#FF9800": "#ff3333"   # Orange -> Light Red
+        }
+        theme_color = theme_colors.get(color, color)
+        
         return f"""
             QPushButton {{
-                background-color: {color};
-                border: none;
+                background: {theme_color};
+                border: 1px solid {theme_color};
                 color: white;
-                padding: 10px;
+                padding: 12px 24px;
                 text-align: center;
-                font-size: 14px;
-                border-radius: 8px;
-                font-weight: bold;
+                font-size: 15px;
+                font-weight: 600;
+                border-radius: 12px;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
             }}
             QPushButton:hover {{
-                background-color: {color}dd;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {theme_color}, stop:1 #000000);
+                border: 1px solid #ff0000;
+                transform: scale(1.02);
             }}
             QPushButton:pressed {{
-                background-color: {color}aa;
+                background: #660000;
+                transform: scale(0.98);
             }}
             QPushButton:disabled {{
-                background-color: #555;
-                color: #888;
+                background: #333333;
+                color: #666666;
+                border: 1px solid #444444;
             }}
         """
     
     def get_combo_stylesheet(self):
         return """
             QComboBox {
-                border: 2px solid #555;
-                border-radius: 5px;
-                padding: 8px;
-                background-color: #2b2b2b;
+                border: 1px solid #cc0000;
+                border-radius: 10px;
+                padding: 10px 15px;
+                background-color: #1a1a1a;
                 color: #ffffff;
+                font-size: 15px;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+                min-height: 20px;
             }
-            QComboBox:drop-down {
+            QComboBox:hover {
+                border-color: #ff0000;
+                background-color: #262626;
+            }
+            QComboBox:focus {
+                border-color: #ff0000;
+                border-width: 2px;
+            }
+            QComboBox::drop-down {
                 border: none;
+                width: 30px;
             }
             QComboBox::down-arrow {
-                width: 12px;
-                height: 12px;
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #cc0000;
+                margin-right: 5px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1a1a1a;
+                border: 1px solid #cc0000;
+                border-radius: 10px;
+                selection-background-color: #cc0000;
+                selection-color: white;
+                padding: 5px;
+                color: #ffffff;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #cc0000;
+                color: white;
             }
         """
     
     def get_toggle_button_stylesheet(self):
         return """
             QPushButton {
-                background-color: #555;
-                border: 2px solid #777;
-                color: white;
-                padding: 10px;
+                background-color: #333333;
+                border: 1px solid #666666;
+                color: #cccccc;
+                padding: 12px 20px;
                 text-align: center;
-                font-size: 12px;
-                border-radius: 8px;
+                font-size: 15px;
+                font-weight: 500;
+                border-radius: 12px;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
             }
             QPushButton:checked {
-                background-color: #4CAF50;
-                border-color: #66bb6a;
+                background-color: #cc0000;
+                color: white;
+                border: 1px solid #ff0000;
             }
             QPushButton:hover {
-                border-color: #999;
+                background-color: #404040;
+                border: 1px solid #cc0000;
+            }
+            QPushButton:checked:hover {
+                background-color: #ff0000;
             }
         """
 
@@ -584,21 +771,21 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')  # Modern look
     
-    # Set dark palette
+    # Set dark black and red palette
     palette = QPalette()
-    palette.setColor(QPalette.Window, QColor(30, 30, 30))
+    palette.setColor(QPalette.Window, QColor(26, 26, 26))
     palette.setColor(QPalette.WindowText, QColor(255, 255, 255))
-    palette.setColor(QPalette.Base, QColor(45, 45, 45))
-    palette.setColor(QPalette.AlternateBase, QColor(60, 60, 60))
+    palette.setColor(QPalette.Base, QColor(0, 0, 0))
+    palette.setColor(QPalette.AlternateBase, QColor(51, 51, 51))
     palette.setColor(QPalette.ToolTipBase, QColor(0, 0, 0))
     palette.setColor(QPalette.ToolTipText, QColor(255, 255, 255))
     palette.setColor(QPalette.Text, QColor(255, 255, 255))
-    palette.setColor(QPalette.Button, QColor(45, 45, 45))
+    palette.setColor(QPalette.Button, QColor(51, 51, 51))
     palette.setColor(QPalette.ButtonText, QColor(255, 255, 255))
     palette.setColor(QPalette.BrightText, QColor(255, 0, 0))
-    palette.setColor(QPalette.Link, QColor(42, 130, 218))
-    palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
-    palette.setColor(QPalette.HighlightedText, QColor(0, 0, 0))
+    palette.setColor(QPalette.Link, QColor(204, 0, 0))
+    palette.setColor(QPalette.Highlight, QColor(204, 0, 0))
+    palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))
     app.setPalette(palette)
     
     window = TaekwondoApp()

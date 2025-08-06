@@ -1,231 +1,151 @@
-# Taekwondo.AI 🥋
+# PosePerfect.AI - AI-Powered Bodybuilding Pose Analyzer
 
-A cross-platform desktop application that helps users learn and practice Taekwondo moves at home using computer vision and real-time pose analysis.
+PosePerfect.AI is a cross-platform desktop application that helps bodybuilders refine their posing routines by comparing their real-time webcam pose to professional reference images. Built using PyQt5 for the frontend and MediaPipe for pose detection, the app provides visual overlays, voice guidance, and performance scoring to improve symmetry, muscle engagement, and stage presence.
 
-![Taekwondo.AI](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![License](https://img.shields.io/badge/License-Private-red.svg)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+## Core Features
 
-## 🎯 Features
+### Pose Detection with Comparison
+- Real-time skeletal landmark extraction using MediaPipe Pose
+- Compare live poses to reference poses (pose1.jpg - pose4.jpg)
+- Highlight deviations in angle, symmetry, and alignment
+- Overlay pose landmarks on both live and target images
 
-### Core Functionality
-- **Real-time Pose Detection**: Uses MediaPipe to analyze your Taekwondo form in real-time
-- **Personalized Calibration**: Calibrates to your body dimensions for accurate feedback
-- **Visual & Audio Feedback**: On-screen guidance with optional voice instructions
-- **Photo Capture**: Save snapshots of your poses with skeletal overlays for review
-- **Progress Tracking**: Session summaries with improvement suggestions
+### Pose Mode Selection
+Choose from classic bodybuilding poses:
+- Front Double Biceps
+- Side Chest
+- Back Lat Spread
+- Rear Double Biceps
 
-### Supported Techniques
-- **Stances**: Front stance, horse stance, back stance
-- **Kicks**: Front kick, roundhouse kick, side kick  
-- **Blocks**: Low block, middle block, high block
+### Real-Time Feedback
+- Visual error indicators with colored overlays
+- Text-based corrections and guidance
+- Voice feedback for hands-free training
+- Percent match scoring based on joint angles and symmetry
 
-### User Experience
-- **Beginner-Friendly**: Clean, intuitive interface designed for all skill levels
-- **Offline Capable**: Works completely offline once installed
-- **Cross-Platform**: Runs on Windows, macOS, and Linux
+### Photo Comparison Mode
+- Side-by-side visual comparison of webcam vs target
+- Snapshot capture for progress tracking
+- Load custom reference images
 
-## 🛠 Technology Stack
+### Voice Feedback
+- Offline guidance using pyttsx3
+- Pose-specific corrections
+- Encouragement and scoring announcements
 
-- **Frontend**: PyQt5 for the desktop interface
-- **Backend**: Flask API for pose processing
-- **Computer Vision**: MediaPipe for pose detection and OpenCV for camera handling
-- **Audio**: pyttsx3 for text-to-speech feedback
-- **Data Processing**: NumPy for mathematical calculations
+## Technology Stack
 
-## 📋 Requirements
+- **Frontend**: PyQt5
+- **Pose Detection**: MediaPipe (Pose module)
+- **Camera**: OpenCV
+- **Voice**: pyttsx3 (offline TTS)
+- **Pose Comparison**: NumPy angle metrics between key joints
 
-### System Requirements
-- Python 3.8 or higher
-- Webcam (built-in or external)
-- 4GB RAM minimum (8GB recommended)
-- Windows 10/11, macOS 10.14+, or Linux Ubuntu 18.04+
+## Installation
 
-### Python Dependencies
-See `requirements.txt` for complete list. Main dependencies:
-- PyQt5==5.15.9
-- Flask==2.3.3
-- mediapipe==0.10.7
-- opencv-python==4.8.1.78
-- pyttsx3==2.90
-
-## 🚀 Installation
-
-### 1. Clone the Repository
+1. Clone the repository:
 ```bash
-git clone https://github.com/pravan1/taekwondo.ai.git
-cd taekwondo.ai
+git clone https://github.com/pravan1/poseperfect.ai.git
+cd poseperfect.ai
 ```
 
-### 2. Create Virtual Environment
-```bash
-# Windows
-python -m venv venv
-venv\\Scripts\\activate
-
-# macOS/Linux
-python3 -m venv venv
-source venv/bin/activate
-```
-
-### 3. Install Dependencies
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Test Installation
+3. Add your reference pose images to the `reference_poses` folder:
+   - pose1.jpg - Front Double Biceps
+   - pose2.jpg - Side Chest
+   - pose3.jpg - Back Lat Spread
+   - pose4.jpg - Rear Double Biceps
+
+## How to Run
+
 ```bash
 python main_ui.py
 ```
 
-## 📖 Usage Guide
+## Usage
 
-### Quick Start
-1. **Launch the Application**
-   ```bash
-   python main_ui.py
-   ```
+1. **Start the Application**: Launch the app and allow camera access
+2. **Select a Pose**: Choose from the dropdown menu which bodybuilding pose to practice
+3. **Position Yourself**: Stand in view of the camera with your full body visible
+4. **Follow Feedback**: Watch the visual overlays and listen to voice guidance
+5. **Track Progress**: Monitor your scores for symmetry, alignment, and overall match
 
-2. **Initial Setup**
-   - Click "Start Camera" to activate your webcam
-   - Select "Calibration Mode" from the dropdown
-   - Click "Start Calibration" and follow the on-screen instructions
+## Pose Accuracy Explanation
 
-3. **Training Session**
-   - Switch to "Practice Mode"
-   - Select a Taekwondo move from the dropdown
-   - Follow the real-time feedback to improve your form
+The app analyzes your pose using three key metrics:
 
-### Calibration Process
-The calibration helps personalize feedback to your body dimensions:
+- **Alignment Score** (70% weight): Measures how closely your joint angles match the reference pose
+- **Symmetry Score** (30% weight): Evaluates left-right body balance
+- **Overall Score**: Weighted combination providing a final percentage match
 
-1. **Neutral Pose**: Stand relaxed with arms at your sides
-2. **T-Pose**: Extend arms out horizontally  
-3. **Front Stance**: Perform your best front stance
-4. **Complete**: Calibration data is saved for future sessions
+Visual feedback includes:
+- Red circles: Poor alignment (>15° deviation)
+- Yellow circles: Moderate alignment (10-15° deviation)
+- Green text: Good performance (>80% match)
 
-### Training Tips
-- Ensure good lighting and clear camera view
-- Wear contrasting colors for better pose detection
-- Start with basic stances before advancing to kicks
-- Use voice feedback for hands-free training
-
-## 🎮 Interface Overview
-
-### Main Window Layout
-- **Left Panel**: Live camera feed with pose landmarks
-- **Right Panel**: Controls, feedback, and session info
-
-### Key Controls
-- **Start/Stop Camera**: Control webcam activation
-- **Capture Photo**: Save pose snapshots with analysis
-- **Mode Selection**: Switch between Practice and Calibration
-- **Move Selection**: Choose specific techniques to practice
-- **Voice Toggle**: Enable/disable audio feedback
-
-### Feedback System
-- **Visual Indicators**: Red outlines for errors, green for good form
-- **Text Feedback**: Real-time suggestions in the feedback panel
-- **Pose Quality Bar**: Overall form score (0-100)
-- **Voice Instructions**: Optional audio guidance
-
-## 📊 Session Tracking
-
-Each training session provides:
-- **Duration**: Time spent practicing
-- **Poses Analyzed**: Number of poses processed
-- **Average Quality**: Overall performance score
-- **Common Errors**: Most frequent mistakes to work on
-- **Improvement Trend**: Progress over the session
-- **Next Steps**: Personalized suggestions for improvement
-
-## 🔧 Advanced Features
-
-### API Endpoints
-The Flask backend provides REST API endpoints:
-- `GET /api/health` - Health check
-- `POST /api/analyze_pose` - Analyze pose from image
-- `POST /api/calibration/start` - Start calibration
-- `GET /api/session/summary` - Get session statistics
-
-### Customization
-- **Feedback Sensitivity**: Adjust pose analysis thresholds
-- **Voice Settings**: Change speech rate and volume
-- **Move Difficulty**: Configure beginner/intermediate/advanced modes
-
-## 📁 Project Structure
+## File Structure
 
 ```
-taekwondo.ai/
-├── main_ui.py              # Main PyQt5 application
-├── pose_detector.py        # MediaPipe pose detection
-├── calibration.py          # User calibration system
-├── voice_feedback.py       # Text-to-speech functionality
-├── server.py              # Flask API backend
-├── utils/                 # Utility functions
-│   ├── angle_utils.py     # Angle calculations
-│   ├── feedback_utils.py  # Feedback generation
-│   └── __init__.py
-├── static/                # Static files and captures
-│   └── captures/          # Saved pose photos
-├── requirements.txt       # Python dependencies
-├── .gitignore            # Git ignore rules
-└── README.md             # This file
+poseperfect.ai/
+│
+├── main_ui.py              # PyQt5 interface
+├── pose_detector.py        # MediaPipe pose processing
+├── pose_comparator.py      # Angle-based comparison logic
+├── voice_feedback.py       # Voice correction system
+├── reference_poses/        # Reference images folder
+│   ├── pose1.jpg
+│   ├── pose2.jpg
+│   ├── pose3.jpg
+│   └── pose4.jpg
+├── static/                 # Captured snapshots
+├── requirements.txt        # Dependencies
+├── README.md              # This file
+└── .gitignore            # Git ignore file
 ```
 
-## 🚨 Troubleshooting
+## System Requirements
 
-### Common Issues
+- Python 3.8 or higher
+- Webcam
+- Windows/Mac/Linux desktop environment
+- Minimum 4GB RAM
+- Audio output for voice feedback (optional)
 
-**Camera Not Working**
-- Check webcam permissions in system settings
-- Try different camera index in code (0, 1, 2...)
-- Restart the application
+## Tips for Best Results
 
-**Poor Pose Detection**
-- Ensure good lighting conditions
-- Stand further from camera for full body view
-- Wear fitted clothing with good contrast
+1. **Lighting**: Ensure good, even lighting without harsh shadows
+2. **Camera Position**: Place camera at chest height, 6-8 feet away
+3. **Clothing**: Wear form-fitting clothes in contrasting colors
+4. **Background**: Use a plain background for better detection
+5. **Full Body**: Ensure your entire body is visible in frame
 
-**Voice Feedback Not Working**  
-- Check system audio settings
-- Install additional TTS voices if needed
-- Try running as administrator (Windows)
+## Future Enhancements
 
-**Application Won't Start**
-- Verify Python version (3.8+)
-- Check all dependencies are installed
-- Try creating a fresh virtual environment
+- [ ] Additional poses (Most Muscular, Ab & Thigh, etc.)
+- [ ] Progress tracking over time
+- [ ] Video recording and playback
+- [ ] Multi-angle camera support
+- [ ] Competition prep timer
+- [ ] Pose transition training
 
-### Performance Optimization
-- Close other camera applications
-- Use a dedicated webcam for better quality
-- Reduce background applications for smoother processing
+## Contributing
 
-## 🤝 Contributing
+Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
 
-This is a private repository. For bug reports or feature suggestions, please contact the development team.
+## License
 
-## 📄 License
+This project is licensed under the MIT License.
 
-This project is proprietary software. All rights reserved.
+## Acknowledgments
 
-## 🙏 Acknowledgments
-
-- **MediaPipe Team** - For the excellent pose detection framework
-- **PyQt5 Community** - For the robust GUI framework  
-- **Taekwondo Community** - For technique guidance and feedback
-- **OpenCV Contributors** - For computer vision tools
-
-## 📞 Support
-
-For technical support or questions:
-- Create an issue in the private repository
-- Contact the development team directly
-- Check the troubleshooting section above
+- MediaPipe team for the excellent pose detection library
+- Bodybuilding community for pose standards and techniques
+- PyQt5 for the robust desktop framework
 
 ---
 
-**Happy Training! 🥋✨**
-
-*Improve your Taekwondo skills with the power of AI and computer vision.*
+**PosePerfect.AI** - Your virtual posing coach, available 24/7 to help you achieve competition-ready form!

@@ -1,313 +1,171 @@
 import pyttsx3
 import threading
+import queue
 import time
-from typing import List, Optional
-import os
+
 
 class VoiceFeedback:
+    """Offline voice feedback system using pyttsx3"""
+    
     def __init__(self):
         self.engine = None
-        self.is_initialized = False
-        self.is_speaking = False
-        self.speak_queue = []
+        self.feedback_queue = queue.Queue()
         self.last_feedback_time = 0
-        self.min_feedback_interval = 3  # Minimum seconds between voice feedback
+        self.min_feedback_interval = 3.0  # Minimum seconds between feedbacks
+        self.is_speaking = False
         
-        self.initialize_engine()
+        # Initialize TTS engine
+        self.init_engine()
         
-        # Predefined feedback messages for common scenarios
-        self.feedback_messages = {
-            # Stance corrections
-            "keep shoulders level": "Keep your shoulders level and aligned",
-            "widen your stance": "Widen your stance for better stability",
-            "align left knee over ankle": "Align your left knee over your ankle",
-            "align right knee over ankle": "Align your right knee over your ankle",
-            "front leg should be more straight": "Keep your front leg straighter",
-            "bend back leg more for stability": "Bend your back leg more for better balance",
-            
-            # Kick corrections
-            "lift kicking knee higher": "Lift your kicking knee higher",
-            "rotate hips more for power": "Rotate your hips more to generate power",
-            "keep balance on standing leg": "Maintain balance on your standing leg",
-            
-            # Positive reinforcement
-            "excellent form": "Excellent form! Keep it up!",
-            "good posture": "Good posture, you're doing great!",
-            "good front leg position": "Perfect front leg position!",
-            "good back leg bend": "Great back leg positioning!",
-            "good knee lift": "Excellent knee lift!",
-            "good hip rotation": "Perfect hip rotation!",
-            
-            # General instructions
-            "pose detected": "Pose detected, analyzing your form",
-            "no pose detected": "Please step into the camera view",
-            "calibration complete": "Calibration completed successfully",
-            "ready to train": "Ready to begin training"
-        }
+        # Start feedback thread
+        self.feedback_thread = threading.Thread(target=self._feedback_worker, daemon=True)
+        self.feedback_thread.start()
     
-    def initialize_engine(self):
-        """Initialize the text-to-speech engine"""
+    def init_engine(self):
+        """Initialize the TTS engine"""
         try:
             self.engine = pyttsx3.init()
             
-            # Configure voice settings
+            # Configure voice properties
             voices = self.engine.getProperty('voices')
             if voices:
-                # Try to use a female voice if available, otherwise use the first one
+                # Try to use a male voice for fitness coaching
                 for voice in voices:
-                    if 'female' in voice.name.lower() or 'zira' in voice.name.lower():
+                    if 'male' in voice.name.lower():
                         self.engine.setProperty('voice', voice.id)
                         break
-                else:
-                    self.engine.setProperty('voice', voices[0].id)
             
-            # Set speech rate (words per minute)
-            self.engine.setProperty('rate', 150)  # Slightly slower for clarity
+            # Set speech rate and volume
+            self.engine.setProperty('rate', 150)  # Speed of speech
+            self.engine.setProperty('volume', 0.9)  # Volume level (0.0 to 1.0)
             
-            # Set volume (0.0 to 1.0)
-            self.engine.setProperty('volume', 0.8)
-            
-            self.is_initialized = True
-            
+            print("Voice feedback system initialized successfully")
         except Exception as e:
-            print(f"Warning: Could not initialize voice feedback: {e}")
-            self.is_initialized = False
+            print(f"Error initializing voice feedback: {e}")
+            self.engine = None
     
-    def speak_feedback(self, message: str, priority: str = "normal"):
-        """
-        Speak feedback message with priority control
-        
-        Args:
-            message: The message to speak
-            priority: "high", "normal", or "low"
-        """
-        if not self.is_initialized or not message:
+    def _feedback_worker(self):
+        """Worker thread for processing feedback queue"""
+        while True:
+            try:
+                feedback = self.feedback_queue.get(timeout=1)
+                if feedback and self.engine:
+                    current_time = time.time()
+                    
+                    # Check if enough time has passed since last feedback
+                    if current_time - self.last_feedback_time >= self.min_feedback_interval:
+                        self.is_speaking = True
+                        self.engine.say(feedback)
+                        self.engine.runAndWait()
+                        self.last_feedback_time = current_time
+                        self.is_speaking = False
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Error in voice feedback worker: {e}")
+                self.is_speaking = False
+    
+    def speak(self, text, priority="normal"):
+        """Add feedback to the queue"""
+        if not self.engine:
             return
         
-        current_time = time.time()
+        # Clear queue for high priority messages
+        if priority == "high" and not self.feedback_queue.empty():
+            while not self.feedback_queue.empty():
+                try:
+                    self.feedback_queue.get_nowait()
+                except queue.Empty:
+                    break
         
-        # Rate limiting for normal and low priority messages
-        if priority != "high":
-            if current_time - self.last_feedback_time < self.min_feedback_interval:
-                return
-        
-        # Clean and prepare message
-        cleaned_message = self._clean_message(message.lower())
-        
-        # Get predefined message if available
-        speech_text = self.feedback_messages.get(cleaned_message, message)
-        
-        # Add to queue and speak
-        self._queue_speech(speech_text, priority)
-        
-        self.last_feedback_time = current_time
+        # Add to queue if not currently speaking or high priority
+        if not self.is_speaking or priority == "high":
+            self.feedback_queue.put(text)
     
-    def speak_instruction(self, instruction: str):
-        """Speak calibration or training instructions"""
-        if not self.is_initialized:
+    def speak_pose_correction(self, pose_name, corrections):
+        """Speak pose-specific corrections"""
+        if not corrections:
             return
         
-        self._queue_speech(instruction, "high")
+        # Prioritize the most important correction
+        correction_text = corrections[0]
+        
+        # Add pose context for clarity
+        full_text = f"For {pose_name}: {correction_text}"
+        self.speak(full_text, priority="high")
     
     def speak_encouragement(self):
-        """Speak random encouragement"""
+        """Speak encouraging messages"""
         encouragements = [
-            "You're doing great! Keep practicing!",
-            "Excellent progress! Stay focused!",
-            "Good work! Remember to breathe!",
-            "Perfect! Maintain that form!",
-            "Outstanding technique! Keep it up!"
+            "Great form! Keep it up!",
+            "Excellent pose! Hold it steady.",
+            "Perfect! You're doing great.",
+            "Outstanding symmetry!",
+            "Impressive muscle control!"
         ]
         
         import random
-        message = random.choice(encouragements)
-        self.speak_feedback(message, "normal")
+        self.speak(random.choice(encouragements))
     
-    def speak_move_instruction(self, move_name: str):
-        """Speak instructions for specific Taekwondo moves"""
-        move_instructions = {
-            "front_stance": "Step forward into front stance. Front leg straight, back leg bent. Weight evenly distributed.",
-            "horse_stance": "Stand with feet wide apart, knees bent, back straight. Hold the position.",
-            "back_stance": "Step back with one foot. Most weight on back leg, front leg light.",
-            "front_kick": "Lift your knee high, extend leg forward, then retract quickly.",
-            "roundhouse_kick": "Lift knee high, rotate hip, strike with the top of your foot.",
-            "side_kick": "Lift knee to chest, extend leg sideways, strike with the heel.",
-            "low_block": "Start high, sweep down and across to block low attacks.",
-            "middle_block": "Block across your body at chest level.",
-            "high_block": "Raise your arm to protect your head area."
-        }
+    def speak_score(self, score):
+        """Announce the current score"""
+        if score >= 90:
+            message = f"Excellent! {int(score)} percent match. Professional level!"
+        elif score >= 80:
+            message = f"Great job! {int(score)} percent match. Almost perfect!"
+        elif score >= 70:
+            message = f"Good work! {int(score)} percent match. Keep improving!"
+        elif score >= 60:
+            message = f"{int(score)} percent match. Focus on the corrections."
+        else:
+            message = f"{int(score)} percent match. Adjust your pose."
         
-        instruction = move_instructions.get(move_name, f"Practice your {move_name.replace('_', ' ')}")
-        self.speak_instruction(instruction)
-    
-    def _clean_message(self, message: str) -> str:
-        """Clean message for lookup in predefined messages"""
-        # Remove common prefixes
-        message = message.replace("✗ ", "").replace("✓ ", "")
-        message = message.replace("move: ", "").replace("move error: ", "")
-        return message.strip()
-    
-    def _queue_speech(self, text: str, priority: str):
-        """Queue speech with priority handling"""
-        if self.is_speaking and priority == "high":
-            # Stop current speech for high priority
-            try:
-                self.engine.stop()
-            except:
-                pass
-        
-        # Start speech in a separate thread
-        thread = threading.Thread(target=self._speak_text, args=(text,))
-        thread.daemon = True
-        thread.start()
-    
-    def _speak_text(self, text: str):
-        """Speak the text (called in separate thread)"""
-        try:
-            self.is_speaking = True
-            self.engine.say(text)
-            self.engine.runAndWait()
-            self.is_speaking = False
-        except Exception as e:
-            print(f"Error speaking text: {e}")
-            self.is_speaking = False
-    
-    def stop_speech(self):
-        """Stop current speech"""
-        if self.is_initialized and self.is_speaking:
-            try:
-                self.engine.stop()
-                self.is_speaking = False
-            except:
-                pass
-    
-    def set_rate(self, rate: int):
-        """Set speech rate (words per minute)"""
-        if self.is_initialized:
-            try:
-                self.engine.setProperty('rate', rate)
-            except:
-                pass
-    
-    def set_volume(self, volume: float):
-        """Set volume (0.0 to 1.0)"""
-        if self.is_initialized:
-            try:
-                volume = max(0.0, min(1.0, volume))  # Clamp between 0 and 1
-                self.engine.setProperty('volume', volume)
-            except:
-                pass
+        self.speak(message)
     
     def test_voice(self):
-        """Test the voice feedback system"""
-        if self.is_initialized:
-            self.speak_feedback("Voice feedback system is working correctly", "high")
+        """Test the voice system"""
+        if self.engine:
+            test_message = "Voice feedback system is ready. Let's perfect your bodybuilding poses!"
+            self.engine.say(test_message)
+            self.engine.runAndWait()
             return True
-        else:
-            print("Voice feedback system is not available")
-            return False
+        return False
     
-    def speak_session_summary(self, session_data: dict):
-        """Speak a summary of the training session"""
-        if not session_data:
-            return
-        
-        summary_parts = []
-        
-        # Session duration
-        if 'duration' in session_data:
-            duration = session_data['duration']
-            summary_parts.append(f"Training session completed in {duration} minutes")
-        
-        # Average pose quality
-        if 'avg_quality' in session_data:
-            quality = session_data['avg_quality']
-            if quality >= 80:
-                summary_parts.append("Excellent performance with high accuracy")
-            elif quality >= 60:
-                summary_parts.append("Good performance with room for improvement")
-            else:
-                summary_parts.append("Keep practicing to improve your form")
-        
-        # Most common error
-        if 'common_error' in session_data:
-            error = session_data['common_error']
-            summary_parts.append(f"Focus on improving: {error}")
-        
-        # Encouragement
-        summary_parts.append("Great work today! Keep practicing regularly to improve your Taekwondo skills.")
-        
-        # Speak the complete summary
-        full_summary = ". ".join(summary_parts)
-        self.speak_instruction(full_summary)
-    
-    def close(self):
-        """Clean up the voice feedback system"""
-        self.stop_speech()
-        if self.is_initialized and self.engine:
-            try:
-                self.engine.stop()
-            except:
-                pass
+    def shutdown(self):
+        """Shutdown the voice system"""
+        if self.engine:
+            self.engine.stop()
 
-# Audio file fallback for systems without TTS
-class AudioFileFeedback:
-    """Fallback class for pre-recorded audio feedback"""
-    
-    def __init__(self, audio_dir: str = "static/audio"):
-        self.audio_dir = audio_dir
-        self.audio_files = {}
-        self.is_available = False
-        
-        # Check if pygame is available for audio playback
-        try:
-            import pygame
-            pygame.mixer.init()
-            self.is_available = True
-        except ImportError:
-            print("pygame not available for audio feedback")
-    
-    def load_audio_files(self):
-        """Load pre-recorded audio files"""
-        if not os.path.exists(self.audio_dir):
-            os.makedirs(self.audio_dir)
-            return
-        
-        # Map audio files to feedback messages
-        audio_mappings = {
-            "shoulders_level.wav": "keep shoulders level",
-            "widen_stance.wav": "widen your stance",
-            "excellent_form.wav": "excellent form",
-            "good_posture.wav": "good posture"
-        }
-        
-        for filename, message in audio_mappings.items():
-            filepath = os.path.join(self.audio_dir, filename)
-            if os.path.exists(filepath):
-                self.audio_files[message] = filepath
-    
-    def play_feedback(self, message: str):
-        """Play pre-recorded audio feedback"""
-        if not self.is_available:
-            return
-        
-        cleaned_message = message.lower().strip()
-        
-        if cleaned_message in self.audio_files:
-            try:
-                import pygame
-                sound = pygame.mixer.Sound(self.audio_files[cleaned_message])
-                sound.play()
-            except Exception as e:
-                print(f"Error playing audio: {e}")
 
-# Factory function to create appropriate feedback system
-def create_voice_feedback() -> VoiceFeedback:
-    """Create the best available voice feedback system"""
-    voice_feedback = VoiceFeedback()
-    
-    if voice_feedback.is_initialized:
-        return voice_feedback
-    else:
-        print("TTS not available, voice feedback disabled")
-        return voice_feedback  # Return even if not initialized for graceful degradation
+# Pose-specific voice cues
+POSE_INSTRUCTIONS = {
+    "Front Double Biceps": [
+        "Stand with feet shoulder-width apart",
+        "Raise both arms to shoulder level",
+        "Flex biceps and rotate wrists outward",
+        "Keep chest expanded and abs tight"
+    ],
+    "Side Chest": [
+        "Turn your body to the side",
+        "Bring front arm across your chest",
+        "Flex the chest and bicep",
+        "Keep rear leg slightly bent"
+    ],
+    "Back Lat Spread": [
+        "Face away from the camera",
+        "Spread your lats as wide as possible",
+        "Keep elbows forward and out",
+        "Flex your back muscles"
+    ],
+    "Rear Double Biceps": [
+        "Face away from the camera",
+        "Raise arms like front double biceps",
+        "Flex calves by raising on toes",
+        "Squeeze shoulder blades together"
+    ]
+}
+
+
+def get_pose_instructions(pose_name):
+    """Get voice instructions for a specific pose"""
+    return POSE_INSTRUCTIONS.get(pose_name, ["Position yourself for the pose"])

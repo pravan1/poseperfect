@@ -81,9 +81,13 @@ class PosePerfectApp(QMainWindow):
         self.voice_feedback = VoiceFeedback()
         self.current_snapshot = None
         self.reference_poses = {}
-        self.load_reference_poses()
+        self.high_score_achieved = False
+        self.auto_advance_timer = QTimer()
+        self.auto_advance_timer.timeout.connect(self.advance_to_next_pose)
+        self.auto_advance_timer.setSingleShot(True)
         
         self.init_ui()
+        self.load_reference_poses()
         
         self.video_thread = VideoThread()
         self.video_thread.change_pixmap_signal.connect(self.update_image)
@@ -124,10 +128,10 @@ class PosePerfectApp(QMainWindow):
         pose_label.setFont(QFont("Arial", 12))
         self.pose_combo = QComboBox()
         self.pose_combo.addItems([
+            "Rear Double Biceps",
             "Front Double Biceps",
             "Side Chest",
-            "Back Lat Spread",
-            "Rear Double Biceps"
+            "Back Lat Spread"
         ])
         self.pose_combo.currentTextChanged.connect(self.on_pose_changed)
         self.pose_combo.setMinimumWidth(200)
@@ -253,10 +257,10 @@ class PosePerfectApp(QMainWindow):
                         pose_detector = PoseDetector()
                         results = pose_detector.process_frame(img)
                         pose_names = [
+                            "Rear Double Biceps",
                             "Front Double Biceps",
                             "Side Chest",
-                            "Back Lat Spread",
-                            "Rear Double Biceps"
+                            "Back Lat Spread"
                         ]
                         if i <= len(pose_names):
                             self.reference_poses[pose_names[i-1]] = {
@@ -275,6 +279,8 @@ class PosePerfectApp(QMainWindow):
                 self.video_thread.set_target_pose(ref_data['landmarks'])
                 self.video_thread.set_pose_mode(pose_name)
             self.statusBar().showMessage(f"Loaded reference for {pose_name}")
+            # Reset the high score flag when pose changes
+            self.high_score_achieved = False
             
     def display_reference_image(self, cv_img):
         if cv_img is not None:
@@ -292,7 +298,16 @@ class PosePerfectApp(QMainWindow):
         
     def update_pose_data(self, pose_data):
         if 'overall_score' in pose_data:
-            self.score_progress.setValue(int(pose_data['overall_score']))
+            score = pose_data['overall_score']
+            self.score_progress.setValue(int(score))
+            
+            # Check for high score achievement (92% or higher)
+            if score >= 92 and not self.high_score_achieved:
+                self.high_score_achieved = True
+                self.auto_capture_and_advance()
+            elif score < 85:
+                # Reset the flag if score drops below 85%
+                self.high_score_achieved = False
             
         if 'symmetry_score' in pose_data:
             self.symmetry_progress.setValue(int(pose_data['symmetry_score']))
@@ -345,9 +360,45 @@ class PosePerfectApp(QMainWindow):
             self.voice_feedback.speak("Voice feedback enabled")
         else:
             self.voice_btn.setText("Enable Voice Feedback")
+    
+    def auto_capture_and_advance(self):
+        """Automatically capture screenshot and advance to next pose when 92% match achieved"""
+        if self.current_snapshot is not None:
+            # Create static directory if it doesn't exist
+            if not os.path.exists("static"):
+                os.makedirs("static")
+            
+            # Generate filename with pose name and timestamp
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            pose_name = self.pose_combo.currentText().replace(' ', '_')
+            filename = f"static/perfect_{pose_name}_{timestamp}.jpg"
+            
+            # Save the snapshot
+            cv2.imwrite(filename, self.current_snapshot)
+            self.statusBar().showMessage(f"Perfect pose captured! Saved: {filename}")
+            
+            # Announce success
+            if self.voice_btn.isChecked():
+                self.voice_feedback.speak("Excellent! Perfect pose captured. Moving to next pose in 3 seconds.")
+            
+            # Start timer to advance to next pose after 3 seconds
+            self.auto_advance_timer.start(3000)
+    
+    def advance_to_next_pose(self):
+        """Advance to the next pose in the sequence"""
+        current_index = self.pose_combo.currentIndex()
+        next_index = (current_index + 1) % self.pose_combo.count()
+        self.pose_combo.setCurrentIndex(next_index)
+        
+        # Announce the new pose
+        if self.voice_btn.isChecked():
+            new_pose = self.pose_combo.currentText()
+            self.voice_feedback.speak(f"Now practicing {new_pose}")
             
     def closeEvent(self, event):
         self.video_thread.stop()
+        self.auto_advance_timer.stop()
         event.accept()
 
 

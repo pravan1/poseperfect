@@ -56,26 +56,24 @@ class PoseDetector:
         if landmarks is None:
             return frame
             
-        # Convert landmarks back to MediaPipe format for drawing
-        landmark_list = []
-        for lm in landmarks:
-            landmark = type('obj', (object,), {
-                'x': lm['x'],
-                'y': lm['y'],
-                'z': lm['z'],
-                'visibility': lm['visibility']
-            })()
-            landmark_list.append(landmark)
+        # Import the proper MediaPipe landmark format
+        from mediapipe.framework.formats import landmark_pb2
         
-        # Create pose landmarks object
-        pose_landmarks_obj = type('obj', (object,), {
-            'landmark': landmark_list
-        })()
+        # Create proper MediaPipe landmark list
+        pose_landmarks = landmark_pb2.NormalizedLandmarkList()
+        
+        # Convert our landmarks to MediaPipe format
+        for lm in landmarks:
+            landmark = pose_landmarks.landmark.add()
+            landmark.x = lm['x']
+            landmark.y = lm['y']
+            landmark.z = lm['z']
+            landmark.visibility = lm['visibility']
         
         # Draw the pose with thinner lines for better performance
         self.mp_drawing.draw_landmarks(
             frame,
-            pose_landmarks_obj,
+            pose_landmarks,
             self.mp_pose.POSE_CONNECTIONS,
             self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=1, circle_radius=2),
             self.mp_drawing.DrawingSpec(color=(0, 128, 255), thickness=1, circle_radius=1)

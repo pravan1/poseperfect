@@ -29,15 +29,15 @@ class VoiceFeedback:
             # Configure voice properties
             voices = self.engine.getProperty('voices')
             if voices:
-                # Try to use a male voice for fitness coaching
+                # Try to use a female voice for more natural Siri-like sound
                 for voice in voices:
-                    if 'male' in voice.name.lower():
+                    if 'female' in voice.name.lower() or 'zira' in voice.name.lower():
                         self.engine.setProperty('voice', voice.id)
                         break
             
-            # Set speech rate and volume
-            self.engine.setProperty('rate', 150)  # Speed of speech
-            self.engine.setProperty('volume', 0.9)  # Volume level (0.0 to 1.0)
+            # Set speech rate and volume for more natural sound
+            self.engine.setProperty('rate', 135)  # Slower, more natural pace
+            self.engine.setProperty('volume', 0.6)  # Quieter volume (0.0 to 1.0)
             
             print("Voice feedback system initialized successfully")
         except Exception as e:
@@ -139,6 +139,12 @@ class VoiceFeedback:
 
 # Pose-specific voice cues
 POSE_INSTRUCTIONS = {
+    "Rear Double Biceps": [
+        "Face away from the camera",
+        "Raise arms like front double biceps",
+        "Flex calves by raising on toes",
+        "Squeeze shoulder blades together"
+    ],
     "Front Double Biceps": [
         "Stand with feet shoulder-width apart",
         "Raise both arms to shoulder level",
@@ -156,12 +162,6 @@ POSE_INSTRUCTIONS = {
         "Spread your lats as wide as possible",
         "Keep elbows forward and out",
         "Flex your back muscles"
-    ],
-    "Rear Double Biceps": [
-        "Face away from the camera",
-        "Raise arms like front double biceps",
-        "Flex calves by raising on toes",
-        "Squeeze shoulder blades together"
     ]
 }
 

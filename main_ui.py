@@ -25,8 +25,7 @@ APPLE_STYLESHEET = """
 }
 
 QMainWindow {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                              stop:0 #E8F2FF, stop:0.6 #FFFFFF, stop:1 #FFFFFF);
+    background: #1a2332;
 }
 
 QWidget#Card {
@@ -70,8 +69,9 @@ QPushButton#Secondary:hover {
 QLabel#Title {
     font-size: 32px;
     font-weight: 700;
-    color: #1e293b;
+    color: #ffffff;
     line-height: 1.2;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 QLabel#Subtitle {
@@ -184,16 +184,21 @@ class WelcomeScreen(QWidget):
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(30)
 
-        # Title
-        title = QLabel("PosePerfect.AI")
-        title.setObjectName("Title")
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        # Logo
+        logo_label = QLabel()
+        logo_path = "logo_transparent.png" if os.path.exists("logo_transparent.png") else "logo.png"
+        if os.path.exists(logo_path):
+            logo_pixmap = QPixmap(logo_path)
+            scaled_logo = logo_pixmap.scaled(400, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_label.setPixmap(scaled_logo)
+            logo_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(logo_label)
 
         # Subtitle
         subtitle = QLabel("Your AI-powered bodybuilding pose coach")
         subtitle.setObjectName("Subtitle")
         subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet("font-size: 16px; color: #ffffff; font-weight: 600; background: rgba(0, 0, 0, 0.3); padding: 8px 16px; border-radius: 8px;")
         layout.addWidget(subtitle)
 
         # Card container

@@ -1,0 +1,28 @@
+{
+  "score": 18.9,
+  "per_joint": {
+    "left_elbow": {
+      "delta_deg": 88.8,
+      "advice": "Straighten left elbow 90\u00b0"
+    },
+    "right_elbow": {
+      "delta_deg": -25.2,
+      "advice": "Bend right elbow 25\u00b0"
+    },
+    "left_shoulder": {
+      "delta_deg": -102.8,
+      "advice": "Raise left shoulder 105\u00b0"
+    },
+    "right_shoulder": {
+      "delta_deg": -82.1,
+      "advice": "Raise right shoulder 80\u00b0"
+    }
+  },
+  "symmetry": 63.0,
+  "alignment": 0,
+  "top_tips": [
+    "Straighten left elbow 90\u00b0",
+    "Bend right elbow 25\u00b0",
+    "Raise left shoulder 105\u00b0"
+  ]
+}

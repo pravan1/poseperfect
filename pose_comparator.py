@@ -1,5 +1,134 @@
 import numpy as np
 import math
+from typing import Dict, List, Optional
+
+
+def compare_pose(user_landmarks, ref_landmarks, joints_config=None) -> dict:
+    """
+    Compare user pose with reference pose and return detailed feedback.
+
+    Returns:
+      {
+        "score": float,          # 0-100
+        "per_joint": { "left_elbow": {"delta_deg": 12.3, "advice": "Raise left elbow 10°"}, ... },
+        "symmetry": float,       # 0-100
+        "alignment": float,      # 0-100
+        "top_tips": [ "Open lats", "Straighten wrists", ... ]
+      }
+    """
+    if not user_landmarks or not ref_landmarks:
+        return {
+            "score": 0,
+            "per_joint": {},
+            "symmetry": 0,
+            "alignment": 0,
+            "top_tips": ["Cannot detect pose clearly. Ensure full body is visible."]
+        }
+
+    # Use default joints config if not provided
+    if joints_config is None:
+        joints_config = PoseComparator.POSE_KEY_ANGLES.get('Front Double Biceps', [])
+
+    per_joint = {}
+    angle_differences = []
+    tips = []
+
+    # Calculate joint angle differences
+    for angle_joints in joints_config:
+        joint1_idx = PoseComparator.POSE_LANDMARKS[angle_joints[0]]
+        joint2_idx = PoseComparator.POSE_LANDMARKS[angle_joints[1]]
+        joint3_idx = PoseComparator.POSE_LANDMARKS[angle_joints[2]]
+
+        user_angle = PoseComparator.calculate_angle(
+            user_landmarks[joint1_idx],
+            user_landmarks[joint2_idx],
+            user_landmarks[joint3_idx]
+        )
+
+        ref_angle = PoseComparator.calculate_angle(
+            ref_landmarks[joint1_idx],
+            ref_landmarks[joint2_idx],
+            ref_landmarks[joint3_idx]
+        )
+
+        delta = user_angle - ref_angle
+        angle_differences.append(abs(delta))
+
+        # Generate advice for this joint
+        joint_name = angle_joints[1]
+        advice = _generate_joint_advice(joint_name, delta)
+
+        per_joint[joint_name] = {
+            "delta_deg": round(delta, 1),
+            "advice": advice
+        }
+
+        # Add to tips if significant deviation
+        if abs(delta) > 10:
+            tips.append(advice)
+
+    # Calculate scores
+    alignment = max(0, 100 - np.mean(angle_differences) * 2)
+    symmetry = PoseComparator.calculate_symmetry(user_landmarks)
+    overall_score = (alignment * 0.7 + symmetry * 0.3)
+
+    # Add symmetry tip if needed
+    if symmetry < 80:
+        tips.append("Balance left and right sides")
+
+    # Limit to top 3 tips
+    top_tips = tips[:3] if tips else ["Great form!"]
+
+    return {
+        "score": round(overall_score, 1),
+        "per_joint": per_joint,
+        "symmetry": round(symmetry, 1),
+        "alignment": round(alignment, 1),
+        "top_tips": top_tips
+    }
+
+
+def _generate_joint_advice(joint_name: str, delta_deg: float) -> str:
+    """
+    Generate specific advice for a joint based on angle delta.
+
+    Args:
+        joint_name: Name of the joint (e.g., "left_elbow")
+        delta_deg: Angle difference (positive = user angle is larger)
+
+    Returns:
+        Human-readable advice string
+    """
+    # Round to nearest 5 degrees for cleaner advice
+    delta_rounded = int(round(abs(delta_deg) / 5) * 5)
+
+    if abs(delta_deg) < 5:
+        return f"Perfect {joint_name.replace('_', ' ')}"
+
+    joint_display = joint_name.replace('_', ' ')
+
+    # Determine direction based on joint type and delta sign
+    if 'elbow' in joint_name or 'knee' in joint_name:
+        # For elbows and knees, positive delta means more bent
+        if delta_deg > 0:
+            action = "Straighten"
+        else:
+            action = "Bend"
+    elif 'shoulder' in joint_name or 'hip' in joint_name:
+        # For shoulders/hips, direction depends on context
+        if delta_deg > 0:
+            action = "Lower"
+        else:
+            action = "Raise"
+    elif 'wrist' in joint_name or 'ankle' in joint_name:
+        if delta_deg > 0:
+            action = "Adjust down"
+        else:
+            action = "Adjust up"
+    else:
+        action = "Adjust"
+
+    return f"{action} {joint_display} {delta_rounded}°"
 
 
 class PoseComparator:

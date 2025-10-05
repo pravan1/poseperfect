@@ -69,7 +69,7 @@ class VoiceFeedback:
         """Add feedback to the queue"""
         if not self.engine:
             return
-        
+
         # Clear queue for high priority messages
         if priority == "high" and not self.feedback_queue.empty():
             while not self.feedback_queue.empty():
@@ -77,10 +77,49 @@ class VoiceFeedback:
                     self.feedback_queue.get_nowait()
                 except queue.Empty:
                     break
-        
+
         # Add to queue if not currently speaking or high priority
         if not self.is_speaking or priority == "high":
             self.feedback_queue.put(text)
+
+    def speak_tips(self, tips: list, rate_scale: float = 1.1):
+        """
+        Queue short coaching tips with pacing.
+
+        Args:
+            tips: List of tip strings (keep each ≤8 words)
+            rate_scale: Speech rate multiplier (default 1.1 for slightly faster)
+        """
+        if not self.engine or not tips:
+            return
+
+        # Limit to max 3 tips to avoid overwhelming
+        limited_tips = tips[:3]
+
+        # Clear existing queue for new batch
+        while not self.feedback_queue.empty():
+            try:
+                self.feedback_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        # Set rate
+        original_rate = self.engine.getProperty('rate')
+        adjusted_rate = int(original_rate * rate_scale)
+        self.engine.setProperty('rate', adjusted_rate)
+
+        # Queue each tip with brief pauses
+        for i, tip in enumerate(limited_tips):
+            # Shorten tip if too long (max 8 words)
+            words = tip.split()
+            if len(words) > 8:
+                tip = ' '.join(words[:8])
+
+            self.feedback_queue.put(tip)
+
+            # Add small pause between tips (except after last)
+            if i < len(limited_tips) - 1:
+                time.sleep(0.5)  # 500ms pause
     
     def speak_pose_correction(self, pose_name, corrections):
         """Speak pose-specific corrections"""

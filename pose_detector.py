@@ -119,24 +119,55 @@ class PoseDetector:
         """Calculate angle between three joints"""
         if not landmarks:
             return None
-            
+
         try:
             joint1 = landmarks[joint1_idx]
             joint2 = landmarks[joint2_idx]
             joint3 = landmarks[joint3_idx]
-            
+
             # Calculate vectors
             v1 = np.array([joint1['x'] - joint2['x'], joint1['y'] - joint2['y']])
             v2 = np.array([joint3['x'] - joint2['x'], joint3['y'] - joint2['y']])
-            
+
             # Calculate angle
             cosine_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-6)
             angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
-            
+
             return np.degrees(angle)
         except:
             return None
-    
+
+    def capture_frame(self):
+        """
+        Capture a single frame from the camera.
+
+        Returns:
+            BGR frame as numpy array, or None if capture fails
+        """
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            return None
+
+        ret, frame = cap.read()
+        cap.release()
+
+        if ret:
+            return cv2.flip(frame, 1)  # Mirror the frame
+        return None
+
+    def get_landmarks(self, image_bgr):
+        """
+        Extract pose landmarks from an image.
+
+        Args:
+            image_bgr: BGR image (numpy array)
+
+        Returns:
+            List of landmark dicts with x, y, z, visibility keys, or None if no pose detected
+        """
+        results = self.process_frame(image_bgr)
+        return results.get('landmarks', None)
+
     def close(self):
         """Release resources"""
         self.pose.close()

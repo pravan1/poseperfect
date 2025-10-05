@@ -1,0 +1,26 @@
+{
+  "score": 93.5,
+  "per_joint": {
+    "left_elbow": {
+      "delta_deg": 0.8,
+      "advice": "Perfect left elbow"
+    },
+    "right_elbow": {
+      "delta_deg": 0.8,
+      "advice": "Perfect right elbow"
+    },
+    "left_knee": {
+      "delta_deg": -0.0,
+      "advice": "Perfect left knee"
+    },
+    "right_knee": {
+      "delta_deg": 1.1,
+      "advice": "Perfect right knee"
+    }
+  },
+  "symmetry": 81.7,
+  "alignment": 98.6,
+  "top_tips": [
+    "Great form!"
+  ]
+}

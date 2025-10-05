@@ -236,10 +236,10 @@ class WelcomeScreen(QWidget):
     def start_session(self):
         # Default pose sequence
         pose_sequence = [
-            {"name": "Front Double Biceps", "ref": "reference_poses/pose1.jpg"},
-            {"name": "Side Chest", "ref": "reference_poses/pose2.jpg"},
-            {"name": "Back Lat Spread", "ref": "reference_poses/pose3.jpg"},
-            {"name": "Rear Double Biceps", "ref": "reference_poses/pose4.jpg"},
+            {"name": "Back Double Biceps", "ref": "reference_poses/pose1.jpg"},
+            {"name": "Front Double Biceps", "ref": "reference_poses/pose2.jpg"},
+            {"name": "Side Chest", "ref": "reference_poses/pose3.jpg"},
+            {"name": "Back Lat Spread", "ref": "reference_poses/pose4.jpg"},
         ]
         voice_enabled = self.voice_checkbox.isChecked()
         self.start_session_signal.emit(pose_sequence, voice_enabled)
@@ -263,6 +263,8 @@ class PoseStepScreen(QWidget):
         self.session_dir = None
         self.captured_image = None
         self.feedback_result = None
+        self.required_score = 75.0  # Start at 75%
+        self.attempt_count = 0
 
         self.init_ui()
 
@@ -277,7 +279,8 @@ class PoseStepScreen(QWidget):
         self.camera_label = QLabel()
         self.camera_label.setMinimumSize(640, 480)
         self.camera_label.setMaximumSize(640, 480)
-        self.camera_label.setScaledContents(True)
+        self.camera_label.setScaledContents(False)
+        self.camera_label.setAlignment(Qt.AlignCenter)
         self.camera_label.setStyleSheet("border: 2px solid #e2e8f0; border-radius: 12px; background: black;")
         left_layout.addWidget(self.camera_label)
 
@@ -305,7 +308,8 @@ class PoseStepScreen(QWidget):
         self.ref_label = QLabel()
         self.ref_label.setMinimumSize(400, 300)
         self.ref_label.setMaximumSize(400, 300)
-        self.ref_label.setScaledContents(True)
+        self.ref_label.setScaledContents(False)
+        self.ref_label.setAlignment(Qt.AlignCenter)
         self.ref_label.setStyleSheet("border: 2px solid #e2e8f0; border-radius: 8px;")
         right_layout.addWidget(self.ref_label)
 
@@ -392,13 +396,16 @@ class PoseStepScreen(QWidget):
         self.display_image(frame, self.camera_label)
 
     def display_image(self, cv_img, label):
-        """Display OpenCV image in QLabel"""
+        """Display OpenCV image in QLabel without stretching"""
         if cv_img is None:
             return
         height, width, channel = cv_img.shape
         bytes_per_line = 3 * width
         q_image = QImage(cv_img.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
-        label.setPixmap(QPixmap.fromImage(q_image))
+        pixmap = QPixmap.fromImage(q_image)
+        # Scale keeping aspect ratio instead of stretching
+        label.setScaledContents(False)
+        label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def start_countdown(self):
         """Begin 5-second countdown"""
@@ -431,7 +438,11 @@ class PoseStepScreen(QWidget):
         if not self.session_dir:
             return
 
-        user_path = self.session_dir / f"pose{self.pose_idx+1}_user.jpg"
+        # Increment attempt count
+        self.attempt_count += 1
+
+        # Save with attempt number
+        user_path = self.session_dir / f"pose{self.pose_idx+1}_attempt{self.attempt_count}.jpg"
         cv2.imwrite(str(user_path), self.current_frame)
         self.captured_image = self.current_frame.copy()
 
@@ -457,7 +468,7 @@ class PoseStepScreen(QWidget):
         self.feedback_result = result
 
         # Save feedback JSON
-        feedback_path = self.session_dir / f"pose{self.pose_idx+1}_feedback.json"
+        feedback_path = self.session_dir / f"pose{self.pose_idx+1}_attempt{self.attempt_count}_feedback.json"
         with open(feedback_path, 'w') as f:
             json.dump(result, f, indent=2)
 
@@ -467,22 +478,58 @@ class PoseStepScreen(QWidget):
         # Update reference label to show side-by-side or just user image
         self.display_image(annotated, self.ref_label)
 
-        # Update tips
+        # Update tips with detailed feedback
         self.tips_list.clear()
-        self.tips_list.addItem(f"Score: {result['score']:.0f}% | Symmetry: {result['symmetry']:.0f}%")
-        for tip in result["top_tips"]:
-            self.tips_list.addItem(f"• {tip}")
+        score = result['score']
+
+        # Show score and required threshold
+        self.tips_list.addItem(f"Score: {score:.0f}% | Target: {self.required_score:.0f}% | Attempt: {self.attempt_count}")
+        self.tips_list.addItem(f"Symmetry: {result['symmetry']:.0f}%")
+
+        # Add detailed feedback about what went wrong
+        if score < self.required_score:
+            self.tips_list.addItem("--- What to improve ---")
+            for tip in result["top_tips"]:
+                self.tips_list.addItem(f"• {tip}")
+
+            # Add specific joint feedback
+            per_joint = result.get("per_joint", {})
+            major_issues = [(joint, info) for joint, info in per_joint.items()
+                          if abs(info.get("delta_deg", 0)) > 15]
+            if major_issues:
+                self.tips_list.addItem("--- Major adjustments needed ---")
+                for joint, info in major_issues[:2]:  # Show top 2 major issues
+                    self.tips_list.addItem(f"• {info.get('advice', '')}")
+        else:
+            self.tips_list.addItem("--- Great job! ---")
+            for tip in result["top_tips"]:
+                self.tips_list.addItem(f"• {tip}")
 
         # Voice feedback
         if self.voice_enabled:
             from voice_feedback import VoiceFeedback
             voice = VoiceFeedback()
-            voice.speak_tips(result["top_tips"])
 
-        # Show retry and next buttons
-        self.start_btn.hide()
-        self.retry_btn.show()
-        self.next_btn.show()
+            # Provide context-aware feedback
+            if score < self.required_score:
+                voice.speak_tips([f"Score {int(score)} percent. You need {int(self.required_score)} percent."] + result["top_tips"][:2])
+            else:
+                voice.speak_tips([f"Great job! Score {int(score)} percent. Moving to next level."])
+
+        # Check if score meets threshold
+        if score >= self.required_score:
+            # Increase difficulty for next attempt by 5%
+            self.required_score = min(95.0, self.required_score + 5.0)
+
+            # Show next button to move on
+            self.start_btn.hide()
+            self.retry_btn.hide()
+            self.next_btn.show()
+        else:
+            # Show retry button to practice more
+            self.start_btn.hide()
+            self.retry_btn.show()
+            self.next_btn.hide()
 
     def retry_pose(self):
         """Retry current pose"""
@@ -528,7 +575,7 @@ class SummaryScreen(QWidget):
         grid_layout = QHBoxLayout(grid_widget)
         grid_layout.setSpacing(15)
 
-        pose_names = ["Front Double Biceps", "Side Chest", "Back Lat Spread", "Rear Double Biceps"]
+        pose_names = ["Back Double Biceps", "Front Double Biceps", "Side Chest", "Back Lat Spread"]
 
         for i in range(4):
             pose_card = QWidget()
@@ -539,17 +586,30 @@ class SummaryScreen(QWidget):
             img_label = QLabel()
             img_label.setMinimumSize(200, 150)
             img_label.setMaximumSize(200, 150)
-            img_label.setScaledContents(True)
+            img_label.setScaledContents(False)
+            img_label.setAlignment(Qt.AlignCenter)
             img_label.setStyleSheet("border: 1px solid #e2e8f0; border-radius: 8px;")
 
-            img_path = self.session_dir / f"pose{i+1}_user.jpg"
-            if img_path.exists():
+            # Find the best attempt for this pose
+            img_path = None
+            attempt = 1
+            while True:
+                potential_path = self.session_dir / f"pose{i+1}_attempt{attempt}.jpg"
+                if potential_path.exists():
+                    img_path = potential_path
+                    attempt += 1
+                else:
+                    break
+
+            # Use the last attempt (most recent/best) if any exist
+            if img_path and img_path.exists():
                 img = cv2.imread(str(img_path))
                 if img is not None:
                     h, w = img.shape[:2]
                     bytes_per_line = 3 * w
                     q_image = QImage(img.data, w, h, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
-                    img_label.setPixmap(QPixmap.fromImage(q_image))
+                    pixmap = QPixmap.fromImage(q_image)
+                    img_label.setPixmap(pixmap.scaled(img_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
             pose_card_layout.addWidget(img_label)
 
@@ -626,7 +686,7 @@ class SummaryScreen(QWidget):
         summary = {
             "poses": [
                 {
-                    "name": ["Front Double Biceps", "Side Chest", "Back Lat Spread", "Rear Double Biceps"][i],
+                    "name": ["Back Double Biceps", "Front Double Biceps", "Side Chest", "Back Lat Spread"][i],
                     "score": result.get("score", 0),
                     "top_tips": result.get("top_tips", [])
                 }

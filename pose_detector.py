@@ -28,6 +28,7 @@ class PoseDetector:
         # Uncomment if experiencing lag:
         # rgb_frame = cv2.resize(rgb_frame, (640, 480))
         
+
         results = self.pose.process(rgb_frame)
         
         if results.pose_landmarks:
